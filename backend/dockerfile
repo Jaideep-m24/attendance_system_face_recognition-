@@ -1,29 +1,39 @@
-# 1. Start from Python 3.11 slim (small-but-full-featured)
+# 0. Use Python 3.11 slim as before
 FROM python:3.11-slim
 
-# 2. Install OS-level build deps for OpenCV & DLib
+# 1. Install system packages you need for dlib+OpenCV
+#    libsm6, libxext6, libxrender-dev are OpenCV headless dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential cmake libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    build-essential cmake libglib2.0-0 \
+    libsm6 libxext6 libxrender-dev \
   && rm -rf /var/lib/apt/lists/*
 
-# 3. Set working dir
+# 2. Limit make to 1 job (cuts peak RAM in half or more)
+ENV MAKEFLAGS="-j1"
+
+# 3. Turn off pip cache to save disk/RAM
+ENV PIP_NO_CACHE_DIR=off
+
 WORKDIR /app
 
-# 4. Copy only requirements first (cache layer)
+# 4. Copy only requirements first so Docker layer-caching works
 COPY requirements.txt .
 
-# 5. Install Python deps
+# 5. Upgrade pip, then install wheels first, then build source packages
+#    We install numpy & OpenCV wheels (they’re prebuilt), then dlib
 RUN pip install --upgrade pip \
- && pip install -r requirements.txt
+ && pip install --no-cache-dir \
+      numpy==1.24.3 \
+      opencv-python-headless==4.8.1.78 \
+ && pip install --no-cache-dir \
+      dlib==19.24.1 \
+ && pip install --no-cache-dir \
+      -r requirements.txt  # install the rest (Flask, CORS, Supabase, Gunicorn)
 
-# 6. Copy the rest of your code
+# 6. Copy your code & download models
 COPY . .
-
-# 7. Download DLib models before runtime
 RUN python download_models.py
 
-# 8. Expose the port your app listens on
+# 7. Expose & run
 EXPOSE 8080
-
-# 9. Use Gunicorn to serve your Flask/FastAPI app
 CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8080"]
