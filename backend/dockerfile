@@ -5,7 +5,7 @@ WORKDIR /app
 
 # 1) Conda bits (heavy/native)
 RUN micromamba install -y -n base -c conda-forge \
-    python=3.10 dlib=19.24 numpy pillow pip \
+    python=3.10 dlib=19.24 numpy pillow pip gunicorn \
  && micromamba clean -a -y
 
 # 2) Pip deps — filter out those already provided by conda
