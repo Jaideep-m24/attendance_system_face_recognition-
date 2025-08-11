@@ -37,26 +37,37 @@ except Exception as e:
     predictor = None
     face_reco_model = None
 
-def base64_to_image(base64_string):
-    """Convert base64 string to OpenCV image"""
+def bytes_to_opencv_image(img_bytes: bytes):
+    """Decode bytes into a uint8 BGR image (always 3 channels)."""
     try:
-        # Remove data URL prefix if present
-        if ',' in base64_string:
-            base64_string = base64_string.split(',')[1]
-        
-        # Decode base64
-        image_data = base64.b64decode(base64_string)
-        
-        # Convert to PIL Image
-        pil_image = Image.open(io.BytesIO(image_data))
-        
-        # Convert to OpenCV format
-        opencv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-        
-        return opencv_image
+        arr = np.frombuffer(img_bytes, np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_UNCHANGED)  # keep alpha if present
+        if img is None:
+            return None
+        # force uint8
+        if img.dtype != np.uint8:
+            img = img.astype(np.uint8)
+        # ensure 3-channel BGR
+        if len(img.shape) == 2:  # grayscale -> BGR
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        elif img.shape[2] == 4:  # BGRA -> BGR
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        return np.ascontiguousarray(img)
+    except Exception as e:
+        logger.error(f"bytes_to_opencv_image error: {e}")
+        return None
+
+def base64_to_image(base64_string):
+    """Convert base64 (data URL or raw) to uint8 BGR image (3 channels)."""
+    try:
+        if ',' in base64_string:  # strip data URL header if present
+            base64_string = base64_string.split(',', 1)[1]
+        img_bytes = base64.b64decode(base64_string)
+        return bytes_to_opencv_image(img_bytes)
     except Exception as e:
         logger.error(f"Error converting base64 to image: {e}")
         return None
+
 
 def extract_face_features(image):
     """Extract 128D face features using dlib"""
@@ -64,23 +75,26 @@ def extract_face_features(image):
         raise Exception("dlib models not loaded")
     
     try:
-        # Convert to grayscale for face detection
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
-        # Detect faces
-        faces = detector(gray)
-        
-        if len(faces) == 0:
-            return None, None
-        
-        # Use the first detected face
-        face = faces[0]
-        
-        # Get face landmarks
-        landmarks = predictor(gray, face)
-        
-        # Extract 128D features
-        face_descriptor = face_reco_model.compute_face_descriptor(image, landmarks)
+# Normalize for OpenCV & dlib
+    if image.dtype != np.uint8:
+      image = image.astype(np.uint8)
+      image = np.ascontiguousarray(image)
+
+# OpenCV detector uses gray from BGR
+      gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+# dlib descriptor expects RGB (uint8, 3ch)
+      rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+# Detect & describe
+      faces = detector(gray)
+   if len(faces) == 0:
+      return None, None
+
+face = faces[0]
+landmarks = predictor(gray, face)
+face_descriptor = face_reco_model.compute_face_descriptor(rgb, landmarks)
+
         
         # Convert to numpy array
         features = np.array(face_descriptor)
@@ -327,6 +341,12 @@ def recognize_faces():
         image = base64_to_image(group_image_data)
         if image is None:
             return jsonify({'error': 'Invalid image data'}), 400
+
+        # Safety: dtype/contiguity
+        if image.dtype != np.uint8:
+           image = image.astype(np.uint8)
+           image = np.ascontiguousarray(image)
+
         
         # Get all registered students and their features
         features_response = supabase.table('student_features').select('student_name, features').execute()
@@ -347,6 +367,8 @@ def recognize_faces():
             raise Exception("Face detector not loaded")
         
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        rgb  = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
         faces = detector(gray)
         
         logger.info(f"Detected {len(faces)} faces in group image")
@@ -359,7 +381,7 @@ def recognize_faces():
             try:
                 # Extract features from detected face
                 landmarks = predictor(gray, face)
-                face_descriptor = face_reco_model.compute_face_descriptor(image, landmarks)
+                face_descriptor = face_reco_model.compute_face_descriptor(rgb, landmarks)
                 face_features = np.array(face_descriptor)
                 
                 # Find best match among registered students
