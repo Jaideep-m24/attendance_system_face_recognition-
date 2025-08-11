@@ -1,29 +1,43 @@
-# 1. Start from Python 3.11 slim (small-but-full-featured)
-FROM python:3.10-slim
+# Use a fuller base that plays nicer with native builds
+FROM python:3.10-bullseye
 
-# 2. Install OS-level build deps for OpenCV & DLib
-RUN apt-get update && apt-get install -y \
-    build-essential cmake libglib2.0-0 libsm6 libxext6 libxrender-dev \
-  && rm -rf /var/lib/apt/lists/*
+# Native deps needed for dlib & OpenCV
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake pkg-config \
+    libopenblas-dev liblapack-dev \
+    libboost-all-dev \
+    libx11-dev libgtk2.0-dev \
+    libjpeg-dev libpng-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# 3. Set working dir
 WORKDIR /app
 
-# 4. Copy only requirements first (cache layer)
+# Copy requirements first for better caching
 COPY requirements.txt .
 
-# 5. Install Python deps
-RUN pip install --upgrade pip \
- && pip install -r requirements.txt
+# Speed up dlib/OpenCV installs
+# - use headless OpenCV (no GUI libs, smaller)
+# - build dlib with limited parallelism (keeps memory in check on Render)
+ENV CMAKE_BUILD_PARALLEL_LEVEL=2 \
+    DLIB_USE_CUDA=OFF \
+    PYTHONUNBUFFERED=1 \
+    PORT=8080
 
-# 6. Copy the rest of your code
+# Install wheels first, then dlib, then the rest (cache-friendly)
+# If your requirements.txt includes numpy/opencv/dlib, we install them earlier
+# and then install the rest with --no-deps so they don't get recompiled/replaced.
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir numpy==1.24.3 opencv-python-headless==4.8.1.78 && \
+    pip install --no-cache-dir dlib==19.24.1 && \
+    pip install --no-cache-dir -r requirements.txt --no-deps
+
+# Bring in the app code
 COPY . .
 
-# 7. Download DLib models before runtime
-RUN python download_models.py
+# Don't fail the build if model download script needs network it can't reach
+RUN python download_models.py || true
 
-# 8. Expose the port your app listens on
 EXPOSE 8080
 
-# 9. Use Gunicorn to serve your Flask/FastAPI app
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8080"]
+# On Render, bind to $PORT (it may not always be 8080)
+CMD ["sh","-c","gunicorn -w 1 -k gthread -t 180 -b 0.0.0.0:${PORT} app:app"]
