@@ -75,27 +75,26 @@ def extract_face_features(image):
         raise Exception("dlib models not loaded")
     
     try:
-# Normalize for OpenCV & dlib
-    if image.dtype != np.uint8:
-      image = image.astype(np.uint8)
-      image = np.ascontiguousarray(image)
+        # Normalize for OpenCV & dlib
+        if image.dtype != np.uint8:
+            image = image.astype(np.uint8)
+        image = np.ascontiguousarray(image)
 
-# OpenCV detector uses gray from BGR
-      gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # OpenCV detector uses gray from BGR
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-# dlib descriptor expects RGB (uint8, 3ch)
-      rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # dlib descriptor expects RGB (uint8, 3ch)
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-# Detect & describe
-      faces = detector(gray)
-   if len(faces) == 0:
-      return None, None
+        # Detect & describe
+        faces = detector(gray)
+        if len(faces) == 0:
+            return None, None
 
-face = faces[0]
-landmarks = predictor(gray, face)
-face_descriptor = face_reco_model.compute_face_descriptor(rgb, landmarks)
+        face = faces[0]
+        landmarks = predictor(gray, face)
+        face_descriptor = face_reco_model.compute_face_descriptor(rgb, landmarks)
 
-        
         # Convert to numpy array
         features = np.array(face_descriptor)
         
