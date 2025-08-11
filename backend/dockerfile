@@ -1,29 +1,28 @@
 FROM mambaorg/micromamba:1.5.8
 
-# Make the base env active for all subsequent RUN/CMD
+# Make the base env active for every RUN
 ARG MAMBA_DOCKERFILE_ACTIVATE=1
 SHELL ["/bin/bash", "-lc"]
 
-# Core deps (add opencv if you really need the conda build)
+# Create env
 RUN micromamba install -y -n base -c conda-forge \
       python=3.10 dlib=19.24 numpy pip \
   && micromamba clean -a -y
 
 WORKDIR /app
 
-# If requirements.txt is at repo root:
+# Install Python deps
 COPY --chown=mambauser:mambauser requirements.txt .
-# If it's under backend/, use this instead:
-# COPY --chown=mambauser:mambauser backend/requirements.txt ./requirements.txt
-
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest
 COPY --chown=mambauser:mambauser . .
 
-# Pre-download models (don’t fail the build if script is optional)
-RUN python download_models.py || true
+# (Optional) warm up any model downloads
+# RUN python download_models.py || true
 
-ENV PYTHONUNBUFFERED=1 PORT=8080
+ENV PORT=8080 PYTHONUNBUFFERED=1
 EXPOSE 8080
-CMD ["gunicorn","-b","0.0.0.0:8080","app:app"]
+
+# IMPORTANT: run your app inside the conda env
+CMD ["micromamba","run","-n","base","gunicorn","-b","0.0.0.0:8080","app:app"]
