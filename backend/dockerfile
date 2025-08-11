@@ -1,13 +1,11 @@
 FROM mambaorg/micromamba:1.5.8
-ARG MAMBA_DOCKERFILE_ACTIVATE=1
+
 RUN micromamba install -y -n base -c conda-forge \
-      python=3.10 dlib=19.24 opencv numpy pillow pip \
-  && micromamba clean -a -y
+    python=3.10 dlib=19.24 opencv numpy && micromamba clean -a -y
+
 WORKDIR /app
-COPY --chown=mambauser:mambauser backend/ /app/
-RUN python -m pip install --no-cache-dir \
-      flask==2.3.3 flask-cors==4.0.0 supabase==1.0.4 python-dotenv==1.0.0 gunicorn
-RUN python download_models.py || true
-ENV PYTHONUNBUFFERED=1 PORT=8080
-EXPOSE 8080
+COPY requirements.txt .
+RUN /bin/bash -lc "pip install --no-cache-dir flask==2.3.3 flask-cors==4.0.0 pillow==10.0.1 python-dotenv==1.0.0 supabase==1.0.4"
+COPY . .
+ENV PORT=8080
 CMD ["sh","-c","gunicorn -w 1 -k gthread -t 180 -b 0.0.0.0:${PORT} app:app"]
