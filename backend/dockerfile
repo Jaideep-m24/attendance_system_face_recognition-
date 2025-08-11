@@ -1,43 +1,13 @@
-# Use a fuller base that plays nicer with native builds
-FROM python:3.10-bullseye
-
-# Native deps needed for dlib & OpenCV
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake pkg-config \
-    libopenblas-dev liblapack-dev \
-    libboost-all-dev \
-    libx11-dev libgtk2.0-dev \
-    libjpeg-dev libpng-dev \
-    && rm -rf /var/lib/apt/lists/*
-
+FROM mambaorg/micromamba:1.5.8
+ARG MAMBA_DOCKERFILE_ACTIVATE=1
+RUN micromamba install -y -n base -c conda-forge \
+      python=3.10 dlib=19.24 opencv numpy pillow pip \
+  && micromamba clean -a -y
 WORKDIR /app
-
-# Copy requirements first for better caching
-COPY requirements.txt .
-
-# Speed up dlib/OpenCV installs
-# - use headless OpenCV (no GUI libs, smaller)
-# - build dlib with limited parallelism (keeps memory in check on Render)
-ENV CMAKE_BUILD_PARALLEL_LEVEL=2 \
-    DLIB_USE_CUDA=OFF \
-    PYTHONUNBUFFERED=1 \
-    PORT=8080
-
-# Install wheels first, then dlib, then the rest (cache-friendly)
-# If your requirements.txt includes numpy/opencv/dlib, we install them earlier
-# and then install the rest with --no-deps so they don't get recompiled/replaced.
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir numpy==1.24.3 opencv-python-headless==4.8.1.78 && \
-    pip install --no-cache-dir dlib==19.24.1 && \
-    pip install --no-cache-dir -r requirements.txt --no-deps
-
-# Bring in the app code
-COPY . .
-
-# Don't fail the build if model download script needs network it can't reach
+COPY --chown=mambauser:mambauser backend/ /app/
+RUN python -m pip install --no-cache-dir \
+      flask==2.3.3 flask-cors==4.0.0 supabase==1.0.4 python-dotenv==1.0.0 gunicorn
 RUN python download_models.py || true
-
+ENV PYTHONUNBUFFERED=1 PORT=8080
 EXPOSE 8080
-
-# On Render, bind to $PORT (it may not always be 8080)
 CMD ["sh","-c","gunicorn -w 1 -k gthread -t 180 -b 0.0.0.0:${PORT} app:app"]
