@@ -2,6 +2,19 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Camera, Users, Clock, Check, X, Loader } from 'lucide-react';
 import { useFaceRecognition, RecognizedStudent } from '../services/faceRecognitionService';
 
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://attendance-system-face-recognition-t9rj.onrender.com';
+
+// Turn a Blob into a base64 data URL (e.g. "data:image/jpeg;base64,...")
+const blobToDataUrl = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+
 const TakeAttendance: React.FC = () => {
   const [isCapturing, setIsCapturing] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -141,7 +154,27 @@ const TakeAttendance: React.FC = () => {
       });
 
       // Process with face recognition service
-      const recognized = await faceRecognitionService.recognizeFacesInGroupPhoto(imageBlob, currentPeriod);
+// Convert captured JPEG to data URL (base64)
+    const dataUrl = await blobToDataUrl(imageBlob);
+
+// POST JSON with base64 string that the backend expects
+    const res = await fetch(`${API_BASE}/recognize-faces`, {
+     method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+       groupImage: dataUrl,   // IMPORTANT: send base64 data URL
+       period: currentPeriod,
+  }),
+});
+
+   if (!res.ok) {
+     const text = await res.text().catch(() => '');
+     throw new Error(`HTTP ${res.status}: ${text || 'recognize-faces failed'}`);
+}
+
+  const payload = await res.json();
+ const recognized = (payload?.recognizedStudents ?? []) as RecognizedStudent[];
+
       
       setRecognizedStudents(recognized);
       
