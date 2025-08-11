@@ -1,29 +1,28 @@
 # syntax=docker/dockerfile:1
 FROM mambaorg/micromamba:1.5.8
 
-# 1) System + compiled libs via conda (fast, no wheels to compile)
-RUN micromamba install -y -n base -c conda-forge \
-    python=3.10 dlib=19.24 opencv numpy pillow pip \
- && micromamba clean -a -y
-
-# 2) Work in /app
 WORKDIR /app
 
-# 3) Install pure-Python deps with pip (skip ones we already installed via conda)
-#    We filter out dlib/opencv/numpy/pillow so pip doesn't try to build them again.
-COPY --chown=mambauser:mambauser backend/requirements.txt ./requirements.txt
-RUN micromamba run -n base bash -lc '\
-  grep -v -E "^(dlib|opencv(-python)?|numpy|pillow)(==.*)?$" requirements.txt > /tmp/reqs.txt && \
-  python -m pip install --no-cache-dir -r /tmp/reqs.txt'
+# 1) Install heavy native deps via conda (dlib from conda avoids long builds)
+RUN micromamba install -y -n base -c conda-forge \
+    python=3.10 dlib=19.24 numpy pillow pip \
+ && micromamba clean -a -y
 
-# 4) Copy backend code (models are already in the repo)
-COPY --chown=mambauser:mambauser backend/ /app/
+# 2) Install pip deps (using the conda Python). If your requirements.txt
+#    includes dlib/numpy/pillow, filter them out so we don’t mix versions.
+COPY requirements.txt /tmp/requirements.txt
+RUN micromamba run -n base bash -lc "\
+  grep -v -E '^(dlib|numpy|pillow)(==.*)?$' /tmp/requirements.txt > /tmp/reqs.txt || true \
+  && python -m pip install --no-cache-dir -r /tmp/reqs.txt"
 
-# 5) Runtime env
-ENV PORT=8080 \
-    PYTHONUNBUFFERED=1
+# 3) Copy your backend code into the image
+COPY . /app/
 
+# 4) (Optional but recommended) fetch models at build time so runtime is fast
+RUN micromamba run -n base python download_models.py
+
+# 5) Runtime
+ENV PORT=8080
 EXPOSE 8080
-
-# 6) Start Flask app with Gunicorn from the conda env
-CMD ["micromamba","run","-n","base","gunicorn","app:app","--bind","0.0.0.0:8080","--workers","2","--threads","4","--timeout","120"]
+# Use a shell so $PORT expands on Render
+CMD ["bash","-lc","micromamba run -n base gunicorn --workers 2 --threads 8 --timeout 120 --bind 0.0.0.0:${PORT:-8080} app:app"]
