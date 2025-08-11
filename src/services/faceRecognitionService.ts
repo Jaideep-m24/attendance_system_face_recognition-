@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_BACKEND_URL || 'https://attendance-system-face-recognition-t9rj.onrender.com';
 import { useSupabase } from '../contexts/SupabaseContext';
 
 export interface FaceDetectionResult {
