@@ -30,7 +30,7 @@ export class FaceRecognitionService {
 
   constructor(supabase: any) {
     this.supabase = supabase;
-    this.apiBaseUrl = 'http://localhost:5000'; // Flask API URL
+    this.apiBaseUrl = 'https://attendance-system-face-recognition-t9rj.onrender.com'; // Flask API URL
   }
 
   // Real dlib face detection using Flask API
