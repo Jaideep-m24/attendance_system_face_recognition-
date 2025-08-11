@@ -3,26 +3,25 @@ FROM mambaorg/micromamba:1.5.8
 
 WORKDIR /app
 
-# 1) Install heavy native deps via conda (dlib from conda avoids long builds)
+# 1) Conda bits (heavy/native)
 RUN micromamba install -y -n base -c conda-forge \
     python=3.10 dlib=19.24 numpy pillow pip \
  && micromamba clean -a -y
 
-# 2) Install pip deps (using the conda Python). If your requirements.txt
-#    includes dlib/numpy/pillow, filter them out so we don’t mix versions.
+# 2) Pip deps — filter out those already provided by conda
 COPY requirements.txt /tmp/requirements.txt
 RUN micromamba run -n base bash -lc "\
-  grep -v -E '^(dlib|numpy|pillow)(==.*)?$' /tmp/requirements.txt > /tmp/reqs.txt || true \
-  && python -m pip install --no-cache-dir -r /tmp/reqs.txt"
+  grep -v -E '^(dlib|numpy|pillow)(==.*)?$' /tmp/requirements.txt > /tmp/reqs.txt || true"
+# IMPORTANT: call python via micromamba (no bash here)
+RUN micromamba run -n base python -m pip install --no-cache-dir -r /tmp/reqs.txt
 
-# 3) Copy your backend code into the image
+# 3) App code
 COPY . /app/
 
-# 4) (Optional but recommended) fetch models at build time so runtime is fast
+# 4) Models
 RUN micromamba run -n base python download_models.py
 
 # 5) Runtime
-ENV PORT=8080
+ENV PORT=8080 PYTHONUNBUFFERED=1
 EXPOSE 8080
-# Use a shell so $PORT expands on Render
 CMD ["bash","-lc","micromamba run -n base gunicorn --workers 2 --threads 8 --timeout 120 --bind 0.0.0.0:${PORT:-8080} app:app"]
